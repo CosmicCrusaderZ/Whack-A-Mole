@@ -1,0 +1,439 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Whack-a-Mole Deluxe</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            background-color: #1a1a1a;
+            font-family: 'Arial', sans-serif;
+        }
+        #gameCanvas {
+            border: 4px solid #ffd700;
+            border-radius: 10px;
+            box-shadow: 0 0 20px rgba(255, 215, 0, 0.5);
+        }
+    </style>
+</head>
+<body>
+    <canvas id="gameCanvas" width="800" height="600"></canvas>
+
+    <script>
+        const canvas = document.getElementById('gameCanvas');
+        const ctx = canvas.getContext('2d');
+
+        const SCREEN_WIDTH = 800;
+        const SCREEN_HEIGHT = 600;
+        const MOLE_COUNT = 6;
+        const MOLE_WIDTH = 100;
+        const MOLE_HEIGHT = 140;
+        const HOLE_SIZE = 120;
+        const HAMMER_SIZE = 100;
+
+        let score = 0;
+        let timeLeft = 60;
+        let gameOver = false;
+        let highScore = localStorage.getItem('highScore') || 0;
+
+        class Mole {
+            constructor(x, y) {
+                this.x = x;
+                this.y = y;
+                this.isUp = false;
+                this.hit = false;
+                this.popUpSpeed = Math.random() * 1 + 1;
+                this.currentHeight = 0;
+                this.targetHeight = MOLE_HEIGHT;
+                this.hitTimer = 0;
+                this.blinkTimer = 0;
+                this.eyesClosed = false;
+            }
+
+            update(dt) {
+                if (this.hit) {
+                    this.hitTimer += dt;
+                    if (this.hitTimer >= 1.5) {
+                        this.hit = false;
+                        this.hitTimer = 0;
+                        this.isUp = false;
+                        this.currentHeight = 0;
+                    }
+                } else if (this.isUp) {
+                    if (this.currentHeight < this.targetHeight) {
+                        this.currentHeight += this.popUpSpeed * dt * 60;
+                    }
+                    if (this.currentHeight >= this.targetHeight) {
+                        this.currentHeight = this.targetHeight;
+                    }
+                } else {
+                    if (this.currentHeight > 0) {
+                        this.currentHeight -= this.popUpSpeed * dt * 60;
+                    }
+                    if (this.currentHeight <= 0) {
+                        this.currentHeight = 0;
+                    }
+                }
+
+                // Blinking
+                this.blinkTimer += dt;
+                if (this.blinkTimer > 2) {
+                    this.eyesClosed = true;
+                    if (this.blinkTimer > 2.1) {
+                        this.eyesClosed = false;
+                        this.blinkTimer = 0;
+                    }
+                }
+            }
+
+            draw() {
+                // Draw hole
+                ctx.fillStyle = '#4a3728';
+                ctx.beginPath();
+                ctx.ellipse(this.x + MOLE_WIDTH / 2, this.y + MOLE_HEIGHT - 20, HOLE_SIZE / 2, 20, 0, 0, Math.PI * 2);
+                ctx.fill();
+
+                if (this.currentHeight > 0) {
+                    const moleRect = {
+                        x: this.x,
+                        y: this.y + MOLE_HEIGHT - this.currentHeight,
+                        width: MOLE_WIDTH,
+                        height: this.currentHeight
+                    };
+
+                    // Mole body (cylindrical shape with gradient)
+                    const gradient = ctx.createLinearGradient(moleRect.x, moleRect.y, moleRect.x + moleRect.width, moleRect.y);
+                    gradient.addColorStop(0, '#8B4513');
+                    gradient.addColorStop(0.5, '#CD853F');
+                    gradient.addColorStop(1, '#8B4513');
+                    ctx.fillStyle = gradient;
+                    ctx.fillRect(moleRect.x, moleRect.y, moleRect.width, moleRect.height);
+                    ctx.beginPath();
+                    ctx.ellipse(moleRect.x + MOLE_WIDTH / 2, moleRect.y, MOLE_WIDTH / 2, MOLE_WIDTH / 4, 0, 0, Math.PI * 2);
+                    ctx.fill();
+
+                    // Fur texture
+                    ctx.strokeStyle = 'rgba(139, 69, 19, 0.5)';
+                    for (let i = 0; i < 20; i++) {
+                        ctx.beginPath();
+                        ctx.moveTo(moleRect.x + Math.random() * moleRect.width, moleRect.y);
+                        ctx.lineTo(moleRect.x + Math.random() * moleRect.width, moleRect.y + moleRect.height);
+                        ctx.stroke();
+                    }
+
+                    // Eyes
+                    const eyeY = moleRect.y + moleRect.height / 4;
+                    const leftEye = { x: moleRect.x + MOLE_WIDTH / 3, y: eyeY };
+                    const rightEye = { x: moleRect.x + MOLE_WIDTH * 2 / 3, y: eyeY };
+
+                    [leftEye, rightEye].forEach(eye => {
+                        ctx.fillStyle = '#FFF';
+                        ctx.beginPath();
+                        ctx.arc(eye.x, eye.y, MOLE_WIDTH / 8, 0, Math.PI * 2);
+                        ctx.fill();
+                        
+                        if (!this.eyesClosed) {
+                            ctx.fillStyle = '#000';
+                            ctx.beginPath();
+                            ctx.arc(eye.x, eye.y, MOLE_WIDTH / 16, 0, Math.PI * 2);
+                            ctx.fill();
+
+                            // Reflection
+                            ctx.fillStyle = '#FFF';
+                            ctx.beginPath();
+                            ctx.arc(eye.x + 2, eye.y - 2, MOLE_WIDTH / 40, 0, Math.PI * 2);
+                            ctx.fill();
+                        } else {
+                            ctx.strokeStyle = '#000';
+                            ctx.lineWidth = 2;
+                            ctx.beginPath();
+                            ctx.arc(eye.x, eye.y, MOLE_WIDTH / 8, Math.PI * 0.1, Math.PI * 0.9);
+                            ctx.stroke();
+                        }
+                    });
+
+                    // Nose
+                    const nosePos = { x: moleRect.x + MOLE_WIDTH / 2, y: moleRect.y + moleRect.height / 3 };
+                    ctx.fillStyle = '#FF69B4';
+                    ctx.beginPath();
+                    ctx.ellipse(nosePos.x, nosePos.y, 7, 5, 0, 0, Math.PI * 2);
+                    ctx.fill();
+
+                    // Mouth
+                    ctx.strokeStyle = '#000';
+                    ctx.lineWidth = 3;
+                    ctx.beginPath();
+                    if (this.hit) {
+                        ctx.arc(moleRect.x + MOLE_WIDTH / 2, moleRect.y + moleRect.height / 2 + 10, 20, Math.PI, Math.PI * 2);
+                    } else {
+                        ctx.arc(moleRect.x + MOLE_WIDTH / 2, moleRect.y + moleRect.height / 2, 20, 0, Math.PI);
+                    }
+                    ctx.stroke();
+
+                    // Whiskers
+                    ctx.strokeStyle = '#000';
+                    ctx.lineWidth = 1;
+                    [-1, 1].forEach(side => {
+                        for (let i = 0; i < 3; i++) {
+                            ctx.beginPath();
+                            ctx.moveTo(moleRect.x + MOLE_WIDTH / 2, moleRect.y + moleRect.height / 2 + 5);
+                            ctx.lineTo(moleRect.x + MOLE_WIDTH / 2 + side * 30, moleRect.y + moleRect.height / 2 + 5 + (i - 1) * 10);
+                            ctx.stroke();
+                        }
+                    });
+                }
+            }
+        }
+
+        class Hammer {
+            constructor() {
+                this.x = 0;
+                this.y = 0;
+                this.isHitting = false;
+                this.angle = 0;
+            }
+
+            update(dt) {
+                if (this.isHitting) {
+                    this.angle += 720 * dt;
+                    if (this.angle >= 90) {
+                        this.isHitting = false;
+                        this.angle = 0;
+                    }
+                }
+            }
+
+            draw() {
+                ctx.save();
+                ctx.translate(this.x, this.y);
+                ctx.rotate(this.angle * Math.PI / 180);
+
+                // Draw hammer head
+                const gradient = ctx.createLinearGradient(-HAMMER_SIZE / 4, -HAMMER_SIZE / 4, HAMMER_SIZE / 4, HAMMER_SIZE / 4);
+                gradient.addColorStop(0, '#8B4513');
+                gradient.addColorStop(1, '#D2691E');
+                ctx.fillStyle = gradient;
+                ctx.fillRect(-HAMMER_SIZE / 4, -HAMMER_SIZE / 4, HAMMER_SIZE / 2, HAMMER_SIZE / 2);
+
+                // Metallic effect
+                ctx.strokeStyle = 'rgba(255, 255, 255, 0.5)';
+                ctx.lineWidth = 2;
+                ctx.strokeRect(-HAMMER_SIZE / 4 + 5, -HAMMER_SIZE / 4 + 5, HAMMER_SIZE / 2 - 10, HAMMER_SIZE / 2 - 10);
+
+                // Draw handle
+                ctx.fillStyle = '#8B4513';
+                ctx.fillRect(-5, 0, 10, HAMMER_SIZE / 2);
+
+                // Wood grain effect
+                ctx.strokeStyle = 'rgba(139, 69, 19, 0.5)';
+                for (let i = 0; i < 5; i++) {
+                    ctx.beginPath();
+                    ctx.moveTo(-5, i * HAMMER_SIZE / 10);
+                    ctx.lineTo(5, i * HAMMER_SIZE / 10);
+                    ctx.stroke();
+                }
+
+                ctx.restore();
+            }
+        }
+
+        const moles = [];
+        for (let i = 0; i < MOLE_COUNT; i++) {
+            const x = (i % 3) * (SCREEN_WIDTH / 3) + (SCREEN_WIDTH / 6 - MOLE_WIDTH / 2);
+            const y = Math.floor(i / 3) * (SCREEN_HEIGHT / 3) + (SCREEN_HEIGHT / 2 - MOLE_HEIGHT / 2);
+            moles.push(new Mole(x, y));
+        }
+
+        const hammer = new Hammer();
+
+        const grassPoints = Array(2000).fill().map(() => ({
+            x: Math.random() * SCREEN_WIDTH,
+            y: Math.random() * (SCREEN_HEIGHT / 2) + (SCREEN_HEIGHT / 2),
+            height: Math.random() * 15 + 5,
+            width: Math.random() * 3 + 1,
+            color: `rgb(0, ${Math.random() * 100 + 100}, 0)`
+        }));
+
+        function handleMouseMove(event) {
+            const rect = canvas.getBoundingClientRect();
+            hammer.x = event.clientX - rect.left;
+            hammer.y = event.clientY - rect.top;
+        }
+
+        function handleMouseDown() {
+            hammer.isHitting = true;
+            checkMoleHit();
+        }
+
+        function handleMouseUp() {
+            hammer.isHitting = false;
+        }
+
+        function checkMoleHit() {
+            moles.forEach(mole => {
+                if (mole.isUp && !mole.hit &&
+                    hammer.x > mole.x && hammer.x < mole.x + MOLE_WIDTH &&
+                    hammer.y > mole.y && hammer.y < mole.y + MOLE_HEIGHT) {
+                    mole.hit = true;
+                    mole.isUp = false;
+                    score++;
+                    if (score > highScore) {
+                        highScore = score;
+                        localStorage.setItem('highScore', highScore);
+                    }
+                }
+            });
+        }
+
+        function updateMoles(dt) {
+            moles.forEach(mole => {
+                mole.update(dt);
+                if (!mole.isUp && !mole.hit && Math.random() < 0.01) {
+                    mole.isUp = true;
+                }
+            });
+        }
+
+        function update(dt) {
+            hammer.update(dt);
+            updateMoles(dt);
+
+            timeLeft = Math.max(0, timeLeft - dt);
+            if (timeLeft <= 0) {
+                gameOver = true;
+            }
+        }
+
+        function drawSky() {
+            const gradient = ctx.createLinearGradient(0, 0, 0, SCREEN_HEIGHT / 2);
+            gradient.addColorStop(0, '#87CEEB');
+            gradient.addColorStop(1, '#E0F6FF');
+            ctx.fillStyle = gradient;
+            ctx.fillRect(0, 0, SCREEN_WIDTH, SCREEN_HEIGHT / 2);
+
+            // Add clouds
+            ctx.fillStyle = 'rgba(255, 255, 255, 0.7)';
+            for (let i = 0; i < 5; i++) {
+                const x = Math.random() * SCREEN_WIDTH;
+                const y = Math.random() * (SCREEN_HEIGHT / 4);
+                const radius = Math.random() * 30 + 20;
+                ctx.beginPath();
+                ctx.arc(x, y, radius, 0, Math.PI * 2);
+                ctx.arc(x + radius, y - radius / 2, radius * 0.8, 0, Math.PI * 2);
+                ctx.arc(x - radius, y - radius / 2, radius * 0.8, 0, Math.PI * 2);
+                ctx.fill();
+            }
+        }
+
+        function drawGround() {
+            const gradient = ctx.createLinearGradient(0, SCREEN_HEIGHT / 2, 0, SCREEN_HEIGHT);
+            gradient.addColorStop(0, '#228B22');
+            gradient.addColorStop(1, '#006400');
+            ctx.fillStyle = gradient;
+            ctx.fillRect(0, SCREEN_HEIGHT / 2, SCREEN_WIDTH, SCREEN_HEIGHT / 2);
+
+            grassPoints.forEach(point => {
+                ctx.fillStyle = point.color;
+                ctx.fillRect(point.x, point.y - point.height, point.width, point.height);
+            });
+        }
+
+        function drawUI() {
+            // Score and Time
+            ctx.fillStyle = 'rgba(0, 0, 0, 0.5)';
+            ctx.fillRect(10, 10, 200, 70);
+            ctx.fillRect(SCREEN_WIDTH - 210, 10, 200, 70);
+
+            ctx.fillStyle = '#FFF';
+            ctx.font = 'bold 24px Arial';
+            ctx.fillText(`Score: ${score}`, 20, 40);
+            ctx.fillText(`High Score: ${highScore}`, 20, 70);
+            ctx.fillText(`Time: ${Math.ceil(timeLeft)}s`, SCREEN_WIDTH - 200, 40);
+
+            // Progress bar
+            const barWidth = SCREEN_WIDTH - 40;
+            const barHeight = 20;
+            ctx.fillStyle = 'rgba(0, 0, 0, 0.5)';
+            ctx.fillRect(20, SCREEN_HEIGHT - 40, barWidth, barHeight);
+            ctx.fillStyle = '#00FF00';
+            ctx.fillRect(20, SCREEN_HEIGHT - 40, barWidth * (timeLeft / 60), barHeight);
+        }
+
+        function draw() {
+            drawSky();
+            drawGround();
+
+            moles.forEach(mole => mole.draw());
+            hammer.draw();
+
+            drawUI();
+
+            if (gameOver) {
+                ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
+                ctx.fillRect(0, 0, SCREEN_WIDTH, SCREEN_HEIGHT);
+
+                ctx.fillStyle = '#FFD700';
+                ctx.font = 'bold 48px Arial';
+                ctx.textAlign = 'center';
+                ctx.fillText('GAME OVER', SCREEN_WIDTH / 2, SCREEN_HEIGHT / 2 - 50);
+
+                ctx.fillStyle = '#FFF';
+                ctx.font = '32px Arial';
+                ctx.fillText(`Final Score: ${score}`, SCREEN_WIDTH / 2, SCREEN_HEIGHT / 2 + 10);
+                ctx.fillText(`High Score: ${highScore}`, SCREEN_WIDTH / 2, SCREEN_HEIGHT / 2 + 50);
+
+                ctx.fillStyle = '#4CAF50';
+                ctx.fillRect(SCREEN_WIDTH / 2 - 100, SCREEN_HEIGHT / 2 + 100, 200, 50);
+                ctx.fillStyle = '#FFF';
+                ctx.font = '24px Arial';
+                ctx.fillText('Play Again', SCREEN_WIDTH / 2, SCREEN_HEIGHT / 2 + 130);
+            }
+        }
+
+        let lastTime = 0;
+        function gameLoop(currentTime) {
+            const dt = (currentTime - lastTime) / 1000;
+            lastTime = currentTime;
+
+            update(dt);
+            draw();
+
+            if (!gameOver) {
+                requestAnimationFrame(gameLoop);
+            }
+        }
+
+        canvas.addEventListener('mousemove', handleMouseMove);
+        canvas.addEventListener('mousedown', handleMouseDown);
+        canvas.addEventListener('mouseup', handleMouseUp);
+        canvas.addEventListener('click', (event) => {
+            if (gameOver) {
+                const rect = canvas.getBoundingClientRect();
+                const x = event.clientX - rect.left;
+                const y = event.clientY - rect.top;
+                if (x > SCREEN_WIDTH / 2 - 100 && x < SCREEN_WIDTH / 2 + 100 &&
+                    y > SCREEN_HEIGHT / 2 + 100 && y < SCREEN_HEIGHT / 2 + 150) {
+                    // Reset game
+                    score = 0;
+                    timeLeft = 60;
+                    gameOver = false;
+                    moles.forEach(mole => {
+                        mole.isUp = false;
+                        mole.hit = false;
+                        mole.currentHeight = 0;
+                    });
+                    requestAnimationFrame(gameLoop);
+                }
+            }
+        });
+
+        requestAnimationFrame(gameLoop);
+    </script>
+</body>
+</html>
